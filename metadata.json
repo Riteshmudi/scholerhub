@@ -1,0 +1,6 @@
+{
+  "name": "ScholarHub",
+  "description": "ScholarHub – Smart Learning Assistant with 9 AI study features, interactive 3D book flipbook showcase, slide deck, and Sophisticated Dark aesthetic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
