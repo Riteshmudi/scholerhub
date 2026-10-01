@@ -75,8 +75,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
 
-  // SSO Modal Simulation
-  const [ssoModal, setSsoModal] = useState<{ isOpen: boolean; provider: string } | null>(null);
+  // SSO is not implemented — buttons show 'Coming Soon'
 
   // Password strength calculation
   const passwordStrength = useMemo(() => {
@@ -128,6 +127,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         if (result.code === 'USER_NOT_FOUND') {
           setNotFoundEmail(trimmedEmail);
           triggerNotification('No account found with this email. Please create an account first.', 'error');
+        } else if (result.code === 'NETWORK_ERROR') {
+          triggerNotification(result.message, 'error');
         } else {
           triggerNotification(result.message, 'error');
         }
@@ -220,30 +221,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       setShowForgotModal(false);
       setResetSent(false);
       setResetEmail('');
-      triggerNotification('Password reset link sent to your inbox!', 'success');
-    }, 1800);
+      triggerNotification('Password reset is not available yet. Please contact support.', 'info');
+    }, 1200);
   };
 
-  const handleSSOSelect = (provider: string, email: string) => {
-    setSsoModal(null);
-    setIsLoading(true);
-    triggerNotification(`Authenticating via ${provider} (${email})...`, 'info');
-    const userSession: UserSession = {
-      name: email.split('@')[0] || 'Sayantan',
-      email: email || 'sayantanmaity41@gmail.com',
-      isLoggedIn: true
-    };
-    try {
-      localStorage.setItem('studyai_user', JSON.stringify(userSession));
-    } catch {
-      // ignore
-    }
-
-    setTimeout(() => {
-      setIsLoading(false);
-      triggerNotification(`Authenticated with ${provider}! Opening Dashboard...`, 'success');
-      onLoginSuccess?.(userSession);
-    }, 500);
+  const handleSSOClick = (provider: string) => {
+    triggerNotification(`${provider} sign-in is coming soon. Please use email/password for now.`, 'info');
   };
 
   return (
@@ -477,7 +460,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               <div className="social-media">
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'Google' })}
+                  onClick={() => handleSSOClick('Google')}
                   className="social-icon group"
                   title="Sign in with Google"
                 >
@@ -485,7 +468,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'University SSO' })}
+                  onClick={() => handleSSOClick('University SSO')}
                   className="social-icon group"
                   title="University SSO"
                 >
@@ -493,7 +476,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'GitHub' })}
+                  onClick={() => handleSSOClick('GitHub')}
                   className="social-icon group"
                   title="Sign in with GitHub"
                 >
@@ -501,7 +484,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'LinkedIn' })}
+                  onClick={() => handleSSOClick('LinkedIn')}
                   className="social-icon group"
                   title="Sign in with LinkedIn"
                 >
@@ -656,7 +639,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               <div className="social-media">
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'Google' })}
+                  onClick={() => handleSSOClick('Google')}
                   className="social-icon group"
                   title="Sign up with Google"
                 >
@@ -664,7 +647,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'University SSO' })}
+                  onClick={() => handleSSOClick('University SSO')}
                   className="social-icon group"
                   title="University SSO"
                 >
@@ -672,7 +655,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'GitHub' })}
+                  onClick={() => handleSSOClick('GitHub')}
                   className="social-icon group"
                   title="Sign up with GitHub"
                 >
@@ -680,7 +663,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSsoModal({ isOpen: true, provider: 'LinkedIn' })}
+                  onClick={() => handleSSOClick('LinkedIn')}
                   className="social-icon group"
                   title="Sign up with LinkedIn"
                 >
@@ -836,66 +819,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* SSO Simulation Modal */}
-      <AnimatePresence>
-        {ssoModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm p-6 rounded-3xl bg-[#141416] border border-[#d4af37]/40 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_40px_rgba(212,175,55,0.2)] text-white"
-            >
-              <button
-                onClick={() => setSsoModal(null)}
-                className="absolute top-4 right-4 p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-
-              <div className="w-10 h-10 rounded-2xl bg-[#d4af37]/20 border border-[#d4af37]/40 flex items-center justify-center text-[#d4af37] mb-3">
-                <Globe className="w-5 h-5" />
-              </div>
-
-              <h3 className="text-base font-medium text-white mb-1">
-                Sign in with {ssoModal.provider}
-              </h3>
-              <p className="text-xs text-white/60 mb-4 font-light">
-                Choose an existing verified account to authorize with ScholarHub:
-              </p>
-
-              <div className="space-y-2 mb-3">
-                <button
-                  onClick={() => handleSSOSelect(ssoModal.provider, 'sayantanmaity41@gmail.com')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.04] hover:bg-[#d4af37]/15 border border-white/10 hover:border-[#d4af37]/40 transition-all text-left cursor-pointer group"
-                >
-                  <div>
-                    <div className="text-xs font-medium text-white group-hover:text-[#d4af37]">Sayantan Maity</div>
-                    <div className="text-[11px] text-white/50">sayantanmaity41@gmail.com</div>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-white/40 group-hover:text-[#d4af37] group-hover:translate-x-1 transition-all" />
-                </button>
-
-                <button
-                  onClick={() => handleSSOSelect(ssoModal.provider, 'scholar.academic@university.edu')}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.04] hover:bg-[#d4af37]/15 border border-white/10 hover:border-[#d4af37]/40 transition-all text-left cursor-pointer group"
-                >
-                  <div>
-                    <div className="text-xs font-medium text-white group-hover:text-[#d4af37]">Academic Student SSO</div>
-                    <div className="text-[11px] text-white/50">scholar.academic@university.edu</div>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-white/40 group-hover:text-[#d4af37] group-hover:translate-x-1 transition-all" />
-                </button>
-              </div>
-
-              <div className="text-[10px] text-center text-white/40 font-mono">
-                🔒 256-Bit Encrypted Secure OAuth 2.0
-              </div>
             </motion.div>
           </div>
         )}

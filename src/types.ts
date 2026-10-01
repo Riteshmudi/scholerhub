@@ -26,6 +26,8 @@ export interface DashboardDocument {
   uploadedAt: string;
   type: 'pdf' | 'docx' | 'txt' | 'img';
   summary?: string;
+  status?: 'processing' | 'ready' | 'failed';
+  errorMessage?: string;
 }
 
 export interface ChatMessage {

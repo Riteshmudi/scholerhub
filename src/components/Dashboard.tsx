@@ -45,6 +45,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { DashboardDocument, ChatMessage, UserSession } from '../types';
 import { protectRoute } from '../services/auth';
+import { documentsApi, chatApi, quizApi, plannerApi, progressApi, notesApi, recommendationsApi, ApiError } from '../services/api';
 
 interface DashboardProps {
   user: UserSession;
@@ -52,67 +53,14 @@ interface DashboardProps {
   onNavigateHome?: () => void;
 }
 
-const INITIAL_DOCS: DashboardDocument[] = [
-  {
-    id: 'doc-1',
-    name: 'Data Structures.pdf',
-    pages: 24,
-    size: '12.4 MB',
-    uploadedAt: 'Uploaded 2 hours ago',
-    type: 'pdf',
-    summary: 'Comprehensive guide covering Binary Search Trees, AVL Trees, Hash Tables, and Graph traversal algorithms (BFS, DFS).'
-  },
-  {
-    id: 'doc-2',
-    name: 'Machine Learning Notes.pdf',
-    pages: 56,
-    size: '18.7 MB',
-    uploadedAt: 'Uploaded 1 day ago',
-    type: 'pdf',
-    summary: 'Core supervised and unsupervised learning algorithms: Linear Regression, Logistic Regression, Decision Trees, SVM, and k-Means clustering.'
-  },
-  {
-    id: 'doc-3',
-    name: 'DBMS Unit 3.docx',
-    pages: 32,
-    size: '8.1 MB',
-    uploadedAt: 'Uploaded 2 days ago',
-    type: 'docx',
-    summary: 'Relational database normalization (1NF to BCNF), ACID properties, concurrency control mechanisms, and transaction logging.'
-  },
-  {
-    id: 'doc-4',
-    name: 'Operating Systems.txt',
-    pages: 15,
-    size: '4.3 MB',
-    uploadedAt: 'Uploaded 3 days ago',
-    type: 'txt',
-    summary: 'Process synchronization, Deadlock prevention, Banker\'s algorithm, Virtual Memory paging, and page replacement strategies.'
-  }
-];
+const INITIAL_DOCS: DashboardDocument[] = [];
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
-    id: 'msg-1',
+    id: 'msg-welcome',
     sender: 'bot',
-    text: "Hi! I'm StudyAI Assistant 🤖\nI've analyzed your uploaded materials. What would you like to learn today?",
-    timestamp: '7:30 PM'
-  },
-  {
-    id: 'msg-2',
-    sender: 'user',
-    text: 'Explain supervised learning in simple words.',
-    timestamp: '7:31 PM'
-  },
-  {
-    id: 'msg-3',
-    sender: 'bot',
-    text: 'Supervised learning is a type of machine learning where the model learns from labeled examples. That means the training data includes both the input and the **correct output**. The model uses this data to **learn a mapping** from inputs to outputs and makes predictions on new, unseen data.',
-    timestamp: '7:32 PM',
-    citation: {
-      docName: 'Machine_Learning_Notes.pdf',
-      page: 12
-    }
+    text: "Hi! I'm your ScholarHub AI Tutor. Ask me anything about your uploaded study materials, or upload a document to get started.",
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 ];
 
@@ -130,7 +78,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [documents, setDocuments] = useState<DashboardDocument[]>(INITIAL_DOCS);
+  const [documents, setDocuments] = useState<DashboardDocument[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
   
   // Chat states
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
@@ -157,10 +107,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
     return 'Good evening';
   };
 
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputQuery;
-    if (!query.trim()) return;
+    if (!query.trim() || isAiTyping) return;
 
+    setChatError(null);
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: 'user',
@@ -172,89 +123,317 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
     setInputQuery('');
     setIsAiTyping(true);
 
-    setTimeout(() => {
-      let botResponse = '';
-      let citation = undefined;
-
-      const lower = query.toLowerCase();
-      if (lower.includes('supervised') || lower.includes('machine learning')) {
-        botResponse = "Supervised learning uses input-output pairs to train algorithms. Key types include **Regression** (predicting continuous values like house prices) and **Classification** (predicting categories like spam vs non-spam). Popular models include Linear Regression, Logistic Regression, Decision Trees, and Random Forests.";
-        citation = { docName: 'Machine_Learning_Notes.pdf', page: 14 };
-      } else if (lower.includes('data structure') || lower.includes('tree') || lower.includes('graph')) {
-        botResponse = "In Data Structures, **Binary Search Trees (BST)** maintain an ordered property: left subtree < root < right subtree, allowing O(log n) average search time. Balanced variants like **AVL Trees** perform rotations to guarantee O(log n) worst-case time.";
-        citation = { docName: 'Data Structures.pdf', page: 8 };
-      } else if (lower.includes('dbms') || lower.includes('acid') || lower.includes('normalization')) {
-        botResponse = "**ACID Properties** ensure database transaction reliability:\n• **Atomicity**: All or nothing execution\n• **Consistency**: State moves from one valid state to another\n• **Isolation**: Concurrent transactions do not interfere\n• **Durability**: Committed changes persist even after system crashes.";
-        citation = { docName: 'DBMS Unit 3.docx', page: 18 };
-      } else if (lower.includes('quiz') || lower.includes('create quiz')) {
-        botResponse = "Here is a quick quiz question based on your notes:\n\n**Q:** What is the primary difference between Supervised and Unsupervised learning?\n**A)** Supervised uses labeled data, while Unsupervised finds hidden patterns in unlabeled data.\n**B)** Unsupervised is faster.\n**C)** Supervised does not use loss functions.\n\n*Type your answer (A, B, or C) to test your recall!*";
-        citation = { docName: 'Machine_Learning_Notes.pdf', page: 20 };
-      } else if (lower.includes('summarize') || lower.includes('summary')) {
-        botResponse = "Here is a concise summary of your recent study materials:\n1. **Data Structures**: Focus on tree traversals (inorder, preorder, postorder) and graph algorithms.\n2. **Machine Learning**: Grasp the bias-variance tradeoff and evaluation metrics (Precision, Recall, F1-Score).\n3. **DBMS**: Master BCNF decomposition and two-phase locking protocol (2PL).";
-        citation = { docName: 'Data Structures.pdf', page: 2 };
-      } else {
-        botResponse = `Based on your study notes in **${documents[0]?.name || 'your documents'}**, here is what you need to know:\n\n1. **Core Concept**: Break complex topics into modular building blocks.\n2. **Key Principle**: Active recall and spaced repetition accelerate retention by up to 80%.\n3. **Practical Application**: Solve practice problems and generate flashcards before the exam.`;
-        citation = { docName: documents[0]?.name || 'Machine_Learning_Notes.pdf', page: 5 };
-      }
+    try {
+      const response = await chatApi.send(query, conversationId || undefined);
+      setConversationId(response.conversationId);
 
       const botMsg: ChatMessage = {
-        id: `msg-${Date.now() + 1}`,
+        id: response.messageId,
         sender: 'bot',
-        text: botResponse,
+        text: response.message,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        citation
+        citation: response.citations?.[0]
+          ? { docName: response.citations[0].docName, page: response.citations[0].page }
+          : undefined,
       };
 
       setMessages(prev => [...prev, botMsg]);
+    } catch (err) {
+      const errorMsg = err instanceof ApiError
+        ? err.message
+        : 'Failed to get AI response. Please try again.';
+      setChatError(errorMsg);
+      const botMsg: ChatMessage = {
+        id: `msg-err-${Date.now()}`,
+        sender: 'bot',
+        text: `Error: ${errorMsg}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages(prev => [...prev, botMsg]);
+    } finally {
       setIsAiTyping(false);
-
       setTimeout(() => {
         chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
-    }, 900);
+    }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
     const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-    let type: 'pdf' | 'docx' | 'txt' | 'img' = 'pdf';
-    if (fileExt === 'docx' || fileExt === 'doc') type = 'docx';
-    else if (fileExt === 'txt') type = 'txt';
-    else if (['png', 'jpg', 'jpeg'].includes(fileExt)) type = 'img';
+    
+    if (!['pdf', 'docx', 'txt'].includes(fileExt)) {
+      setUploadStatus(`Unsupported file type: .${fileExt}. Supported: PDF, DOCX, TXT.`);
+      setTimeout(() => setUploadStatus(null), 4000);
+      e.target.value = '';
+      return;
+    }
 
-    const newDoc: DashboardDocument = {
-      id: `doc-${Date.now()}`,
-      name: file.name,
-      pages: Math.max(1, Math.floor(file.size / (1024 * 50))),
-      size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      uploadedAt: 'Just now',
-      type,
-      summary: `Uploaded document "${file.name}". Ready for AI semantic indexing, flashcard generation, and concept analysis.`
-    };
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadStatus('File is too large. Maximum size is 20 MB.');
+      setTimeout(() => setUploadStatus(null), 4000);
+      e.target.value = '';
+      return;
+    }
 
-    setDocuments(prev => [newDoc, ...prev]);
+    setIsUploading(true);
+    setUploadStatus(`Uploading ${file.name}...`);
 
-    // Send AI assistant greeting about uploaded doc
-    const botMsg: ChatMessage = {
-      id: `msg-upload-${Date.now()}`,
-      sender: 'bot',
-      text: `🎉 Successfully ingested **${file.name}**! I've indexed its content and created study flashcards. Ask me any question or ask me to summarize it!`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      citation: {
-        docName: file.name,
-        page: 1
+    try {
+      const result = await documentsApi.upload(file);
+      
+      // Add the doc to the list with processing status
+      const newDoc: DashboardDocument = {
+        id: result.id,
+        name: file.name,
+        pages: 0,
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        uploadedAt: 'Just now',
+        type: fileExt === 'pdf' ? 'pdf' : fileExt === 'docx' ? 'docx' : 'txt',
+        summary: '',
+        status: 'processing',
+      };
+      setDocuments(prev => [newDoc, ...prev]);
+      setUploadStatus(`${file.name} uploaded. Processing...`);
+
+      // Poll for processing completion
+      pollDocumentStatus(result.id, file.name);
+
+      const botMsg: ChatMessage = {
+        id: `msg-upload-${Date.now()}`,
+        sender: 'bot',
+        text: `Document "${file.name}" uploaded successfully. I'm extracting the text and generating a summary. You can ask me questions about it shortly.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages(prev => [...prev, botMsg]);
+    } catch (err) {
+      const errorMsg = err instanceof ApiError ? err.message : 'Failed to upload file.';
+      setUploadStatus(`Upload failed: ${errorMsg}`);
+      setTimeout(() => setUploadStatus(null), 5000);
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const pollDocumentStatus = (docId: string, docName: string) => {
+    let attempts = 0;
+    const maxAttempts = 30;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const doc = await documentsApi.get(docId);
+        if (doc.status === 'ready' || doc.status === 'failed') {
+          clearInterval(interval);
+          setDocuments(prev =>
+            prev.map(d =>
+              d.id === docId
+                ? {
+                    ...d,
+                    status: doc.status,
+                    pages: doc.pages,
+                    summary: doc.summary,
+                    errorMessage: doc.errorMessage,
+                  }
+                : d
+            )
+          );
+          if (doc.status === 'ready') {
+            setUploadStatus(`${docName} is ready. Summary generated.`);
+          } else {
+            setUploadStatus(`${docName} processing failed: ${doc.errorMessage || 'Unknown error'}`);
+          }
+          setTimeout(() => setUploadStatus(null), 5000);
+        }
+      } catch {
+        // ignore polling errors
       }
-    };
-    setMessages(prev => [...prev, botMsg]);
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+      }
+    }, 3000);
   };
 
   const handleAskAboutDoc = (doc: DashboardDocument) => {
     const prompt = `Can you provide a high-yield study breakdown and test questions for ${doc.name}?`;
     setInputQuery(prompt);
     handleSendMessage(prompt);
+  };
+
+  // Real data states for backend-driven views
+  const [savedNotes, setSavedNotes] = useState<{ id: string; title: string; content: string; source: string; createdAt: string }[]>([]);
+  const [savedQuizzes, setSavedQuizzes] = useState<{ id: string; title: string; topic: string; difficulty: string; questionCount: number; attempts: any[]; createdAt: string }[]>([]);
+  const [savedPlans, setSavedPlans] = useState<{ id: string; title: string; days: { day: string; topic: string; duration: string; status: string }[]; createdAt: string }[]>([]);
+  const [progressStats, setProgressStats] = useState<{ documentsUploaded: number; documentsReady: number; quizzesGenerated: number; quizAttempts: number; studyPlans: number; notes: number; averageQuizScore: number; studyStreak: number } | null>(null);
+  const [subjectPerformance, setSubjectPerformance] = useState<{ subject: string; avgScore: number; attempts: number }[]>([]);
+  const [recommendations, setRecommendations] = useState<{ type: string; priority: string; title: string; description: string; action: string }[]>([]);
+  const [isGeneratingNote, setIsGeneratingNote] = useState(false);
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [activeQuiz, setActiveQuiz] = useState<{ id: string; title: string; questions: { id: string; question: string; options: string[]; correctAnswer: number; explanation: string }[]; currentIndex: number; answers: Record<string, number> } | null>(null);
+  const [quizResult, setQuizResult] = useState<{ score: number; correctCount: number; totalQuestions: number; results: any[] } | null>(null);
+  const [plannerForm, setPlannerForm] = useState({ subjects: '', examDate: '', availableHours: '2', difficulty: 'balanced' });
+  const [viewError, setViewError] = useState<string | null>(null);
+
+  // Load all data from backend on mount
+  React.useEffect(() => {
+    loadDocuments();
+    loadNotes();
+    loadQuizzes();
+    loadPlans();
+    loadProgress();
+    loadRecommendations();
+  }, []);
+
+  const loadDocuments = async () => {
+    try {
+      const result = await documentsApi.list();
+      setDocuments(result.documents.map((d) => ({
+        id: d.id,
+        name: d.name,
+        pages: d.pages,
+        size: d.size,
+        uploadedAt: new Date(d.uploadedAt).toLocaleDateString(),
+        type: d.type as any,
+        summary: d.summary,
+        status: d.status as any,
+        errorMessage: d.errorMessage,
+      })));
+    } catch (err) {
+      // silently fail - empty state will show
+    }
+  };
+
+  const loadNotes = async () => {
+    try {
+      const result = await notesApi.list();
+      setSavedNotes(result.notes);
+    } catch { /* empty state */ }
+  };
+
+  const loadQuizzes = async () => {
+    try {
+      const result = await quizApi.list();
+      setSavedQuizzes(result.quizzes);
+    } catch { /* empty state */ }
+  };
+
+  const loadPlans = async () => {
+    try {
+      const result = await plannerApi.list();
+      setSavedPlans(result.plans);
+    } catch { /* empty state */ }
+  };
+
+  const loadProgress = async () => {
+    try {
+      const result = await progressApi.get();
+      setProgressStats(result.stats);
+      setSubjectPerformance(result.subjectPerformance);
+    } catch { /* empty state */ }
+  };
+
+  const loadRecommendations = async () => {
+    try {
+      const result = await recommendationsApi.get();
+      setRecommendations(result.recommendations);
+    } catch { /* empty state */ }
+  };
+
+  const handleDeleteDoc = async (docId: string) => {
+    try {
+      await documentsApi.delete(docId);
+      setDocuments(prev => prev.filter(d => d.id !== docId));
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to delete document.';
+      setViewError(msg);
+      setTimeout(() => setViewError(null), 4000);
+    }
+  };
+
+  const handleGenerateNote = async () => {
+    const topic = documents.length > 0
+      ? `Key concepts from: ${documents.map(d => d.name).join(', ')}`
+      : 'General study strategies and exam preparation';
+    setIsGeneratingNote(true);
+    setViewError(null);
+    try {
+      await notesApi.generate(topic, documents[0]?.id);
+      await loadNotes();
+      await loadProgress();
+    } catch (err) {
+      setViewError(err instanceof ApiError ? err.message : 'Failed to generate notes.');
+      setTimeout(() => setViewError(null), 5000);
+    } finally {
+      setIsGeneratingNote(false);
+    }
+  };
+
+  const handleGenerateQuiz = async (topic: string, numQuestions: number, difficulty: string) => {
+    setIsGeneratingQuiz(true);
+    setViewError(null);
+    setQuizResult(null);
+    try {
+      const quiz = await quizApi.generate(topic, numQuestions, difficulty, documents.length > 0 ? documents.map(d => d.id) : undefined);
+      setActiveQuiz({ id: quiz.id, title: quiz.title, questions: quiz.questions, currentIndex: 0, answers: {} });
+      await loadQuizzes();
+      await loadProgress();
+    } catch (err) {
+      setViewError(err instanceof ApiError ? err.message : 'Failed to generate quiz.');
+      setTimeout(() => setViewError(null), 5000);
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
+  };
+
+  const handleSubmitQuiz = async () => {
+    if (!activeQuiz) return;
+    setIsGeneratingQuiz(true);
+    try {
+      const answers = Object.entries(activeQuiz.answers).map(([questionId, selectedAnswer]) => ({ questionId, selectedAnswer }));
+      const result = await quizApi.submit(activeQuiz.id, answers);
+      setQuizResult(result);
+      setActiveQuiz(null);
+      await loadQuizzes();
+      await loadProgress();
+    } catch (err) {
+      setViewError(err instanceof ApiError ? err.message : 'Failed to submit quiz.');
+      setTimeout(() => setViewError(null), 5000);
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
+  };
+
+  const handleGeneratePlan = async () => {
+    const subjects = plannerForm.subjects.split(',').map(s => s.trim()).filter(Boolean);
+    if (subjects.length === 0) {
+      setViewError('Please enter at least one subject.');
+      setTimeout(() => setViewError(null), 4000);
+      return;
+    }
+    setIsGeneratingPlan(true);
+    setViewError(null);
+    try {
+      await plannerApi.generate({
+        subjects,
+        examDate: plannerForm.examDate || undefined,
+        availableHours: parseInt(plannerForm.availableHours) || 2,
+        difficulty: plannerForm.difficulty,
+      });
+      await loadPlans();
+      await loadProgress();
+    } catch (err) {
+      setViewError(err instanceof ApiError ? err.message : 'Failed to generate study plan.');
+      setTimeout(() => setViewError(null), 5000);
+    } finally {
+      setIsGeneratingPlan(false);
+    }
   };
 
   const [docFilterType, setDocFilterType] = useState<'all' | 'pdf' | 'docx' | 'txt'>('all');
@@ -437,9 +616,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                   </button>
 
                   <button 
-                    onClick={() => {
-                      setDocuments(prev => prev.filter(d => d.id !== doc.id));
-                    }}
+                    onClick={() => handleDeleteDoc(doc.id)}
                     className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                       isDarkMode ? 'text-white/40 hover:text-rose-400 hover:bg-white/5' : 'text-slate-400 hover:text-rose-500'
                     }`}
@@ -470,42 +647,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           </div>
           <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>My Notes</h2>
           <p className={`text-xs sm:text-sm mt-0.5 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
-            Auto-synthesized key concepts, formulas, and revision highlights from your uploaded files
+            AI-generated key concepts, formulas, and revision highlights from your uploaded files
           </p>
         </div>
         <button 
-          onClick={() => handleSendMessage('Create a concise revision note sheet covering the key concepts across all my materials.')}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black font-semibold text-xs flex items-center gap-2 shadow-sm cursor-pointer"
+          onClick={handleGenerateNote}
+          disabled={isGeneratingNote}
+          className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black font-semibold text-xs flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60"
         >
-          <Sparkles className="w-3.5 h-3.5" /> Generate AI Notes
+          {isGeneratingNote ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating...</> : <><Sparkles className="w-3.5 h-3.5" /> Generate AI Notes</>}
         </button>
       </div>
 
+      {viewError && (
+        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs">
+          {viewError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {[
-          { title: 'Supervised vs Unsupervised Learning', source: 'Machine_Learning_Notes.pdf', bullets: ['Supervised uses labeled targets (Regression & Classification)', 'Unsupervised finds latent structure (K-Means, PCA)', 'Key metric: F1-score balances Precision & Recall'] },
-          { title: 'Binary Search Tree & Balance Criteria', source: 'Data Structures.pdf', bullets: ['BST property: Left < Node < Right', 'Worst case O(n) degenerates into linked list without rebalancing', 'AVL / Red-Black trees maintain O(log n) height invariant'] },
-          { title: 'Relational ACID Transactions', source: 'DBMS Unit 3.docx', bullets: ['Atomicity ensures all-or-nothing execution', 'Two-Phase Locking (2PL) prevents conflict serializability violations', 'Durability write-ahead logs withstand hardware crashes'] },
-        ].map((note, idx) => (
-          <div key={idx} className={`p-5 rounded-2xl border transition-all ${
-            isDarkMode ? 'bg-[#121212]/90 border-white/10 hover:border-[#d4af37]/30' : 'bg-white border-slate-200'
-          }`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#d4af37]/15 text-[#d4af37] font-semibold">Concept #{idx + 1}</span>
-              <span className={`text-[11px] ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>{note.source}</span>
-            </div>
-            <h3 className={`font-bold text-base mb-2.5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{note.title}</h3>
-            <ul className={`text-xs space-y-1.5 mb-4 list-disc list-inside ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-              {note.bullets.map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
-            <button 
-              onClick={() => handleSendMessage(`Can you explain "${note.title}" in greater depth with an exam example?`)}
-              className="text-xs text-[#d4af37] hover:underline flex items-center gap-1 font-medium cursor-pointer"
-            >
-              Ask AI to expand <ArrowRight className="w-3 h-3" />
-            </button>
+        {savedNotes.length === 0 ? (
+          <div className={`col-span-full p-10 rounded-2xl border text-center ${isDarkMode ? 'bg-[#121212]/50 border-white/10 text-white/50' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+            <FileText className="w-10 h-10 mx-auto mb-3 opacity-40 text-[#d4af37]" />
+            <h4 className={`text-base font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>No notes generated yet</h4>
+            <p className="text-xs opacity-70 mb-4 max-w-sm mx-auto">Upload documents and click "Generate AI Notes" to create study notes.</p>
           </div>
-        ))}
+        ) : (
+          savedNotes.map((note) => (
+            <div key={note.id} className={`p-5 rounded-2xl border transition-all ${isDarkMode ? 'bg-[#121212]/90 border-white/10 hover:border-[#d4af37]/30' : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#d4af37]/15 text-[#d4af37] font-semibold">AI Generated</span>
+                <span className={`text-[11px] ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>{note.source}</span>
+              </div>
+              <h3 className={`font-bold text-base mb-2.5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{note.title}</h3>
+              <div className={`text-xs space-y-1.5 mb-4 ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
+                <p className="whitespace-pre-line line-clamp-6">{note.content}</p>
+              </div>
+              <button 
+                onClick={() => handleSendMessage(`Can you explain "${note.title}" in greater depth with an exam example?`)}
+                className="text-xs text-[#d4af37] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              >
+                Ask AI to expand <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -565,32 +751,154 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           </div>
           <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Quiz Generator</h2>
           <p className={`text-xs sm:text-sm mt-0.5 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
-            Generate personalized multiple-choice and flash quizzes directly from your uploaded materials
+            Generate personalized quizzes directly from your uploaded materials
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { title: 'Quick 3-Question Quiz', desc: 'Ideal for 2-minute active recall practice', prompt: 'Generate a 3-question multiple choice diagnostic quiz on my notes with answers and explanations.' },
-          { title: 'Exam Diagnostic (10 Qs)', desc: 'Comprehensive exam difficulty test', prompt: 'Generate a 10-question comprehensive exam quiz based on Machine Learning and DBMS notes.' },
-          { title: 'Flashcard Drill', desc: '5 definition and term pairings', prompt: 'Create 5 flashcard pairs for rapid revision with questions on one side and definitions on the other.' },
-        ].map((q, i) => (
-          <div key={i} className={`p-5 rounded-2xl border flex flex-col justify-between ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
-            <div>
-              <BrainCircuit className="w-8 h-8 text-[#d4af37] mb-3" />
-              <h3 className={`font-bold text-base mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{q.title}</h3>
-              <p className={`text-xs mb-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>{q.desc}</p>
-            </div>
-            <button 
-              onClick={() => handleSendMessage(q.prompt)}
-              className="w-full py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black shadow-xs cursor-pointer hover:opacity-95"
-            >
-              Generate Quiz
-            </button>
+      {viewError && (
+        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs">{viewError}</div>
+      )}
+
+      {/* Active Quiz Taking UI */}
+      {activeQuiz && (
+        <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#121212]/90 border-[#d4af37]/30' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{activeQuiz.title}</h3>
+            <span className="text-xs text-[#d4af37] font-mono">Q {activeQuiz.currentIndex + 1} / {activeQuiz.questions.length}</span>
           </div>
-        ))}
-      </div>
+          <div className={`p-4 rounded-xl mb-4 ${isDarkMode ? 'bg-[#181818]' : 'bg-slate-50'}`}>
+            <p className={`text-sm font-medium mb-3 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              {activeQuiz.questions[activeQuiz.currentIndex].question}
+            </p>
+            <div className="space-y-2">
+              {activeQuiz.questions[activeQuiz.currentIndex].options.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveQuiz(prev => prev ? {
+                    ...prev,
+                    answers: { ...prev.answers, [prev.questions[prev.currentIndex].id]: i }
+                  } : null)}
+                  className={`w-full p-3 rounded-lg text-left text-xs transition-all cursor-pointer border ${
+                    activeQuiz.answers[activeQuiz.questions[activeQuiz.currentIndex].id] === i
+                      ? 'bg-[#d4af37]/20 border-[#d4af37]/60 text-white'
+                      : isDarkMode ? 'bg-white/[0.03] border-white/10 text-white/70 hover:bg-white/10' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className="font-mono mr-2">{String.fromCharCode(65 + i)})</span> {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setActiveQuiz(prev => prev ? { ...prev, currentIndex: Math.max(0, prev.currentIndex - 1) } : null)}
+              disabled={activeQuiz.currentIndex === 0}
+              className="px-4 py-2 rounded-lg text-xs font-medium border border-white/15 text-white/80 hover:bg-white/5 cursor-pointer disabled:opacity-40"
+            >
+              Previous
+            </button>
+            {activeQuiz.currentIndex < activeQuiz.questions.length - 1 ? (
+              <button
+                onClick={() => setActiveQuiz(prev => prev ? { ...prev, currentIndex: prev.currentIndex + 1 } : null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#d4af37] text-black cursor-pointer"
+              >
+                Next
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmitQuiz}
+                disabled={isGeneratingQuiz}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500 text-white cursor-pointer disabled:opacity-60"
+              >
+                {isGeneratingQuiz ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Submit Quiz'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Quiz Result UI */}
+      {quizResult && (
+        <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#121212]/90 border-emerald-500/30' : 'bg-white border-emerald-200'}`}>
+          <div className="text-center mb-4">
+            <div className={`text-3xl font-bold ${quizResult.score >= 70 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {quizResult.score.toFixed(1)}%
+            </div>
+            <p className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
+              {quizResult.correctCount} out of {quizResult.totalQuestions} correct
+            </p>
+          </div>
+          <div className="space-y-2">
+            {quizResult.results.map((r, i) => (
+              <div key={i} className={`p-3 rounded-lg text-xs border ${r.isCorrect ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                <p className={`font-medium mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{r.question}</p>
+                <p className={r.isCorrect ? 'text-emerald-400' : 'text-red-400'}>
+                  {r.isCorrect ? 'Correct!' : `You selected: ${r.selectedAnswer !== null ? String.fromCharCode(65 + r.selectedAnswer) : 'None'} | Correct: ${String.fromCharCode(65 + r.correctAnswer)}`}
+                </p>
+                {r.explanation && <p className={`mt-1 ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>{r.explanation}</p>}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setQuizResult(null)} className="mt-4 px-4 py-2 rounded-lg text-xs font-medium border border-white/15 text-white/80 hover:bg-white/5 cursor-pointer">
+            Back to Quiz Generator
+          </button>
+        </div>
+      )}
+
+      {/* Quiz Generation Options */}
+      {!activeQuiz && !quizResult && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { title: 'Quick 3-Question Quiz', desc: 'Ideal for 2-minute active recall practice', numQ: 3, diff: 'easy' },
+              { title: 'Exam Diagnostic (10 Qs)', desc: 'Comprehensive exam difficulty test', numQ: 10, diff: 'hard' },
+              { title: 'Flashcard Drill (5 Qs)', desc: '5 definition and term questions', numQ: 5, diff: 'medium' },
+            ].map((q, i) => (
+              <div key={i} className={`p-5 rounded-2xl border flex flex-col justify-between ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+                <div>
+                  <BrainCircuit className="w-8 h-8 text-[#d4af37] mb-3" />
+                  <h3 className={`font-bold text-base mb-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{q.title}</h3>
+                  <p className={`text-xs mb-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>{q.desc}</p>
+                </div>
+                <button 
+                  onClick={() => handleGenerateQuiz(documents.length > 0 ? `Based on: ${documents.map(d => d.name).join(', ')}` : 'General Study Material', q.numQ, q.diff)}
+                  disabled={isGeneratingQuiz}
+                  className="w-full py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black shadow-xs cursor-pointer hover:opacity-95 disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {isGeneratingQuiz ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating...</> : 'Generate Quiz'}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Past quizzes */}
+          {savedQuizzes.length > 0 && (
+            <div className="space-y-3">
+              <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Past Quizzes</h3>
+              {savedQuizzes.map((q) => (
+                <div key={q.id} className={`p-4 rounded-2xl border flex items-center justify-between ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div>
+                    <span className="text-[11px] font-mono text-[#d4af37] font-semibold">{q.topic}</span>
+                    <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{q.title}</h4>
+                    <span className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{q.questionCount} questions • {q.attempts.length} attempts</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const quiz = await quizApi.get(q.id);
+                      setActiveQuiz({ id: quiz.id, title: quiz.title, questions: quiz.questions, currentIndex: 0, answers: {} });
+                      setQuizResult(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/30 hover:bg-[#d4af37]/25 cursor-pointer"
+                  >
+                    Retake
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 
@@ -608,36 +916,103 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           </div>
           <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Study Planner</h2>
           <p className={`text-xs sm:text-sm mt-0.5 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
-            Adaptive weekly schedule calibrated to your exam milestones and uploaded notes
+            AI-generated study schedule calibrated to your exam milestones and subjects
           </p>
         </div>
-        <button 
-          onClick={() => handleSendMessage('Create a 7-day revision schedule allocating 2 hours per day across my 3 uploaded courses.')}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black font-semibold text-xs flex items-center gap-2 shadow-sm cursor-pointer"
+      </div>
+
+      {viewError && (
+        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs">{viewError}</div>
+      )}
+
+      {/* Planner Input Form */}
+      <div className={`p-5 rounded-2xl border space-y-3 ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+        <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Create a New Study Plan</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-600'} block mb-1`}>Subjects (comma-separated)</label>
+            <input
+              type="text"
+              value={plannerForm.subjects}
+              onChange={(e) => setPlannerForm(prev => ({ ...prev, subjects: e.target.value }))}
+              placeholder="e.g. Machine Learning, Data Structures, DBMS"
+              className={`w-full text-xs px-3 py-2 rounded-lg border ${isDarkMode ? 'bg-[#181818] border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} focus:outline-none focus:ring-1 focus:ring-[#d4af37]`}
+            />
+          </div>
+          <div>
+            <label className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-600'} block mb-1`}>Exam Date (optional)</label>
+            <input
+              type="date"
+              value={plannerForm.examDate}
+              onChange={(e) => setPlannerForm(prev => ({ ...prev, examDate: e.target.value }))}
+              className={`w-full text-xs px-3 py-2 rounded-lg border ${isDarkMode ? 'bg-[#181818] border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} focus:outline-none focus:ring-1 focus:ring-[#d4af37]`}
+            />
+          </div>
+          <div>
+            <label className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-600'} block mb-1`}>Hours per day</label>
+            <input
+              type="number"
+              value={plannerForm.availableHours}
+              onChange={(e) => setPlannerForm(prev => ({ ...prev, availableHours: e.target.value }))}
+              min="1"
+              max="12"
+              className={`w-full text-xs px-3 py-2 rounded-lg border ${isDarkMode ? 'bg-[#181818] border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} focus:outline-none focus:ring-1 focus:ring-[#d4af37]`}
+            />
+          </div>
+          <div>
+            <label className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-600'} block mb-1`}>Difficulty</label>
+            <select
+              value={plannerForm.difficulty}
+              onChange={(e) => setPlannerForm(prev => ({ ...prev, difficulty: e.target.value }))}
+              className={`w-full text-xs px-3 py-2 rounded-lg border ${isDarkMode ? 'bg-[#181818] border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} focus:outline-none focus:ring-1 focus:ring-[#d4af37]`}
+            >
+              <option value="easy">Easy</option>
+              <option value="balanced">Balanced</option>
+              <option value="intensive">Intensive</option>
+            </select>
+          </div>
+        </div>
+        <button
+          onClick={handleGeneratePlan}
+          disabled={isGeneratingPlan}
+          className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#e6ca65] text-black font-semibold text-xs flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-60"
         >
-          <CalendarDays className="w-3.5 h-3.5" /> Re-optimize Schedule
+          {isGeneratingPlan ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating...</> : <><CalendarDays className="w-3.5 h-3.5" /> Generate Study Plan</>}
         </button>
       </div>
 
-      <div className="space-y-3">
-        {[
-          { day: 'Day 1 (Today)', topic: 'Machine Learning - Supervised Regression & Cost Functions', duration: '45 mins', status: 'In Progress' },
-          { day: 'Day 2 (Tomorrow)', topic: 'Data Structures - Balanced BST, AVL Rotations & Complexity', duration: '50 mins', status: 'Scheduled' },
-          { day: 'Day 3', topic: 'DBMS - ACID Properties & Transaction Locking Protocols', duration: '40 mins', status: 'Scheduled' },
-          { day: 'Day 4', topic: 'Active Recall Diagnostic Quiz & Flashcard Review', duration: '30 mins', status: 'Scheduled' },
-        ].map((plan, i) => (
-          <div key={i} className={`p-4 rounded-2xl border flex items-center justify-between ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
-            <div>
-              <span className="text-[11px] font-mono text-[#d4af37] font-semibold">{plan.day}</span>
-              <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{plan.topic}</h4>
-              <span className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{plan.duration} recommended</span>
+      {/* Saved plans */}
+      {savedPlans.length > 0 && (
+        <div className="space-y-4">
+          {savedPlans.map((plan) => (
+            <div key={plan.id}>
+              <h3 className={`text-sm font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{plan.title}</h3>
+              <div className="space-y-3">
+                {plan.days.map((p, i) => (
+                  <div key={i} className={`p-4 rounded-2xl border flex items-center justify-between ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+                    <div>
+                      <span className="text-[11px] font-mono text-[#d4af37] font-semibold">{p.day}</span>
+                      <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{p.topic}</h4>
+                      <span className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{p.duration}</span>
+                    </div>
+                    <span className={`text-xs px-3 py-1 rounded-full font-medium ${p.status === 'In Progress' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 text-white/50'}`}>
+                      {p.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <span className={`text-xs px-3 py-1 rounded-full font-medium ${plan.status === 'In Progress' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 text-white/50'}`}>
-              {plan.status}
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {savedPlans.length === 0 && !isGeneratingPlan && (
+        <div className={`p-10 rounded-2xl border text-center ${isDarkMode ? 'bg-[#121212]/50 border-white/10 text-white/50' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-40 text-[#d4af37]" />
+          <h4 className={`text-base font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>No study plans yet</h4>
+          <p className="text-xs opacity-70 mb-4 max-w-sm mx-auto">Fill out the form above to generate an AI-powered study schedule.</p>
+        </div>
+      )}
     </div>
   );
 
@@ -654,16 +1029,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
         </div>
         <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Study Progress</h2>
         <p className={`text-xs sm:text-sm mt-0.5 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
-          Active recall analytics, document mastery rates, and weekly study streaks
+          Real analytics calculated from your study activity
         </p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Documents Indexed', value: documents.length, change: '+1 this week' },
-          { label: 'Study Streak', value: '5 Days', change: 'Personal best' },
-          { label: 'Quiz Accuracy', value: '88%', change: '+6% improvement' },
-          { label: 'Concepts Mastered', value: '24', change: '3 in progress' },
+          { label: 'Documents Uploaded', value: progressStats?.documentsUploaded ?? 0, change: `${progressStats?.documentsReady ?? 0} ready` },
+          { label: 'Study Streak', value: `${progressStats?.studyStreak ?? 0} Days`, change: progressStats?.studyStreak ? 'Keep it up!' : 'Start studying' },
+          { label: 'Avg Quiz Score', value: progressStats ? `${progressStats.averageQuizScore.toFixed(1)}%` : 'N/A', change: `${progressStats?.quizAttempts ?? 0} attempts` },
+          { label: 'Quizzes Generated', value: progressStats?.quizzesGenerated ?? 0, change: `${progressStats?.notes ?? 0} notes saved` },
         ].map((stat, i) => (
           <div key={i} className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
             <p className={`text-xs ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>{stat.label}</p>
@@ -672,6 +1047,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           </div>
         ))}
       </div>
+
+      {subjectPerformance.length > 0 && (
+        <div className={`p-5 rounded-2xl border space-y-3 ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+          <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Subject Performance</h3>
+          <div className="space-y-2.5">
+            {subjectPerformance.map((subj, i) => (
+              <div key={i} className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className={isDarkMode ? 'text-white/80' : 'text-slate-700'}>{subj.subject}</span>
+                  <span className="font-mono text-white/90 font-medium">{subj.avgScore.toFixed(1)}% ({subj.attempts} attempts)</span>
+                </div>
+                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${subj.avgScore >= 80 ? 'bg-emerald-400' : subj.avgScore >= 60 ? 'bg-[#d4af37]' : 'bg-amber-400'}`}
+                    style={{ width: `${subj.avgScore}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div className={`p-5 rounded-2xl border space-y-3 ${isDarkMode ? 'bg-[#121212]/90 border-white/10' : 'bg-white border-slate-200'}`}>
+          <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AI Recommendations</h3>
+          <div className="space-y-2">
+            {recommendations.map((rec, i) => (
+              <div key={i} className={`p-3 rounded-lg border text-xs ${
+                rec.priority === 'high' ? 'bg-red-500/10 border-red-500/30 text-red-300' :
+                rec.priority === 'medium' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
+                'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              }`}>
+                <p className="font-semibold mb-0.5">{rec.title}</p>
+                <p className="opacity-80">{rec.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -684,7 +1099,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
         ref={fileInputRef} 
         onChange={handleFileUpload} 
         className="hidden" 
-        accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg"
+        accept=".pdf,.docx,.txt"
       />
 
       {/* MOBILE DRAWER MODAL */}
@@ -752,9 +1167,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                         onClick={() => {
                           setActiveNav(item.id);
                           setMobileMenuOpen(false);
-                          if (item.id === 'quiz-generator') handleSendMessage('Generate a 5-question multiple choice quiz on my uploaded documents.');
-                          if (item.id === 'ai-tutor') handleSendMessage('Act as my personal AI study tutor.');
-                          if (item.id === 'study-planner') handleSendMessage('Create a 7-day study plan for my exams.');
+                          if (item.id === 'quiz-generator') { /* navigate only - quiz generated via button */ }
+                          if (item.id === 'ai-tutor') { /* navigate only */ }
+                          if (item.id === 'study-planner') { /* navigate only */ }
                         }}
                         className={`w-full flex items-center justify-between px-3.5 py-2 rounded-lg text-sm ${
                           activeNav === item.id 
@@ -906,9 +1321,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                     key={item.id}
                     onClick={() => {
                       setActiveNav(item.id);
-                      if (item.id === 'quiz-generator') handleSendMessage('Generate a 5-question multiple choice quiz on my uploaded documents.');
-                      if (item.id === 'ai-tutor') handleSendMessage('Act as my personal AI study tutor. What concept should we test first?');
-                      if (item.id === 'study-planner') handleSendMessage('Create a 7-day study plan for my exams.');
+                      if (item.id === 'quiz-generator') { /* navigate only */ }
+                      if (item.id === 'ai-tutor') { /* navigate only */ }
+                      if (item.id === 'study-planner') { /* navigate only */ }
                     }}
                     className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
                       isActive 

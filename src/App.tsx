@@ -10,7 +10,7 @@ import { FeaturesSection } from './components/FeaturesSection';
 import { AuthPage } from './components/AuthPage';
 import { Dashboard } from './components/Dashboard';
 import { PageView, UserSession } from './types';
-import { authService, isAuthenticated, logoutUser } from './services/auth';
+import { authService, isAuthenticated, logoutUser, verifySession } from './services/auth';
 
 // Standard smooth page transitions
 const heroPageVariants = {
@@ -132,6 +132,24 @@ export default function App() {
   const [authSessionKey, setAuthSessionKey] = useState<number>(0);
   const [authRedirectMessage, setAuthRedirectMessage] = useState<{ message: string; type?: 'success' | 'info' | 'error' } | null>(null);
   const [isTransitioningAuth, setIsTransitioningAuth] = useState<'signin' | 'signup' | null>(null);
+
+  // Verify session with backend on mount
+  React.useEffect(() => {
+    verifySession().then((user) => {
+      if (user) {
+        setCurrentUser(user);
+      } else if (authService.isAuthenticated()) {
+        // Cache was stale, backend says not authenticated
+        logoutUser();
+        setCurrentUser(null);
+        if (activeNav === 'dashboard') {
+          setActiveNav('login');
+          setAuthMode('signin');
+        }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Check URL path or hash for direct navigation (e.g. /dashboard.html, /signup.html, /signin.html)
   React.useEffect(() => {

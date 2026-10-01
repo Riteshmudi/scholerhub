@@ -1,315 +1,129 @@
-import { UserSession, RegisteredUser, AuthResult } from '../types';
-
-const STORAGE_KEYS = {
-  USERS: 'studyai_registered_users',
-  SESSION: 'studyai_auth_session',
-  LEGACY_USER: 'studyai_user'
-};
-
-// Standard email regex validation
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 6;
+import { UserSession, AuthResult } from '../types';
+import { authApi, ApiError } from './api';
 
 /**
- * Retrieve all registered users from persistence
+ * Check if the user is authenticated by calling the backend /api/auth/me
+ * Falls back to localStorage cache for synchronous checks on initial load
  */
-export function getRegisteredUsers(): RegisteredUser[] {
+const SESSION_CACHE_KEY = 'scholarhub_session_cache';
+
+function getCachedUser(): UserSession | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.USERS);
-    if (!raw) {
-      // Seed default existing user for immediate testing of the "Existing User Flow"
-      const defaultUsers: RegisteredUser[] = [
-        {
-          id: 'usr_demo_01',
-          name: 'Sayantan Maity',
-          email: 'sayantanmaity41@gmail.com',
-          password: 'Password123',
-          createdAt: new Date().toISOString()
-        }
-      ];
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(defaultUsers));
-      return defaultUsers;
-    }
-    const users = JSON.parse(raw);
-    return Array.isArray(users) ? users : [];
-  } catch (error) {
-    console.error('Failed to read registered users:', error);
-    return [];
+    const raw = localStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.isLoggedIn ? parsed : null;
+  } catch {
+    return null;
   }
 }
 
-/**
- * Register a new user account
- * Validates inputs, checks for duplicates, and stores the user without logging in.
- */
+function setCachedUser(user: UserSession | null) {
+  try {
+    if (user) {
+      localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(SESSION_CACHE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export async function registerUser(
   fullName: string,
   email: string,
   password: string,
   confirmPassword?: string
 ): Promise<AuthResult> {
-  const trimmedName = (fullName || '').trim();
-  const trimmedEmail = (email || '').trim().toLowerCase();
-
-  // 1. Check all required fields
-  if (!trimmedName) {
-    return {
-      success: false,
-      message: 'Full Name is required.',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  if (!trimmedEmail) {
-    return {
-      success: false,
-      message: 'Email address is required.',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  // 2. Validate email format
-  if (!EMAIL_REGEX.test(trimmedEmail)) {
-    return {
-      success: false,
-      message: 'Please enter a valid email address (e.g. name@example.com).',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  // 3. Validate password length
-  if (!password || password.length < MIN_PASSWORD_LENGTH) {
-    return {
-      success: false,
-      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  // 4. Validate password confirmation
   if (confirmPassword !== undefined && password !== confirmPassword) {
     return {
       success: false,
       message: 'Password and Confirm Password do not match.',
-      code: 'VALIDATION_ERROR'
+      code: 'VALIDATION_ERROR',
     };
-  }
-
-  // 5. Check if account already exists
-  const users = getRegisteredUsers();
-  const existingIndex = users.findIndex(u => u.email.toLowerCase() === trimmedEmail);
-  
-  let newUser: RegisteredUser;
-  let updatedUsers: RegisteredUser[];
-
-  if (existingIndex !== -1) {
-    // If account exists (e.g. pre-seeded demo or previous registration), update with the new password and name
-    newUser = {
-      ...users[existingIndex],
-      name: trimmedName,
-      password: password
-    };
-    updatedUsers = [...users];
-    updatedUsers[existingIndex] = newUser;
-  } else {
-    // Create new registered user
-    newUser = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      name: trimmedName,
-      email: trimmedEmail,
-      password: password,
-      createdAt: new Date().toISOString()
-    };
-    updatedUsers = [...users, newUser];
   }
 
   try {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
-  } catch (error) {
+    const result = await authApi.register(fullName, email, password);
+    const userSession: UserSession = {
+      name: result.user.name,
+      email: result.user.email,
+      isLoggedIn: true,
+    };
+    setCachedUser(userSession);
     return {
-      success: false,
-      message: 'Storage error. Unable to create account.',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  // Generate active session for immediate access
-  const sessionToken = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-  const userSession: UserSession = {
-    name: newUser.name,
-    email: newUser.email,
-    isLoggedIn: true,
-    token: sessionToken
-  };
-
-  try {
-    const sessionData = {
-      token: sessionToken,
+      success: true,
+      message: 'Account created successfully!',
       user: userSession,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000
+      code: 'SUCCESS',
     };
-    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(sessionData));
-    localStorage.setItem(STORAGE_KEYS.LEGACY_USER, JSON.stringify(userSession));
-  } catch (error) {
-    console.error('Failed to store new session:', error);
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : 'Failed to create account.';
+    const code = err instanceof ApiError && err.status === 409 ? 'EMAIL_EXISTS' : 'VALIDATION_ERROR';
+    return { success: false, message, code };
   }
-
-  return {
-    success: true,
-    message: 'Account created successfully!',
-    user: userSession,
-    code: 'SUCCESS'
-  };
 }
 
-/**
- * Sign In a user with email and password
- * Validates credentials and creates an active session.
- */
 export async function loginUser(
   email: string,
   password: string,
-  rememberMe: boolean = true
+  _rememberMe: boolean = true
 ): Promise<AuthResult> {
-  const trimmedEmail = (email || '').trim().toLowerCase();
-
-  if (!trimmedEmail) {
-    return {
-      success: false,
-      message: 'Please enter your email address.',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  if (!password) {
-    return {
-      success: false,
-      message: 'Please enter your password.',
-      code: 'VALIDATION_ERROR'
-    };
-  }
-
-  const users = getRegisteredUsers();
-  // Find by email or username
-  const matchedUser = users.find(
-    u => u.email.toLowerCase() === trimmedEmail || u.name.toLowerCase() === trimmedEmail
-  );
-
-  // If no account with this email exists
-  if (!matchedUser) {
-    return {
-      success: false,
-      message: 'No account found with this email. Please create an account first.',
-      code: 'USER_NOT_FOUND'
-    };
-  }
-
-  // Verify password
-  if (matchedUser.password !== password) {
-    return {
-      success: false,
-      message: 'Invalid email or password.',
-      code: 'INVALID_CREDENTIALS'
-    };
-  }
-
-  // Generate secure session
-  const sessionToken = `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-  const userSession: UserSession = {
-    name: matchedUser.name,
-    email: matchedUser.email,
-    isLoggedIn: true,
-    token: sessionToken
-  };
-
   try {
-    const sessionData = {
-      token: sessionToken,
+    const result = await authApi.login(email, password);
+    const userSession: UserSession = {
+      name: result.user.name,
+      email: result.user.email,
+      isLoggedIn: true,
+    };
+    setCachedUser(userSession);
+    return {
+      success: true,
+      message: 'Login successful!',
       user: userSession,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (rememberMe ? 30 : 1) * 24 * 60 * 60 * 1000
+      code: 'SUCCESS',
     };
-    
-    // Store in session storage / local storage
-    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(sessionData));
-    localStorage.setItem(STORAGE_KEYS.LEGACY_USER, JSON.stringify(userSession));
-  } catch (error) {
-    console.error('Failed to store auth session:', error);
+  } catch (err) {
+    const message = err instanceof ApiError ? err.message : 'Failed to sign in.';
+    let code = 'INVALID_CREDENTIALS';
+    if (err instanceof ApiError && err.status === 0) {
+      code = 'NETWORK_ERROR';
+    }
+    return { success: false, message, code };
   }
-
-  return {
-    success: true,
-    message: 'Login successful!',
-    user: userSession,
-    code: 'SUCCESS'
-  };
 }
 
-/**
- * Log out user: clears active session tokens and state
- */
 export function logoutUser(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEYS.SESSION);
-    localStorage.removeItem(STORAGE_KEYS.LEGACY_USER);
-    sessionStorage.removeItem(STORAGE_KEYS.SESSION);
-    
-    // Prevent browser back button from re-entering dashboard
-    if (typeof window !== 'undefined' && window.history) {
-      window.history.replaceState(null, '', window.location.pathname);
-    }
-  } catch (error) {
-    console.error('Error during logout:', error);
-  }
+  setCachedUser(null);
+  // Fire and forget the backend logout
+  authApi.logout().catch(() => {});
 }
 
-/**
- * Check if current session is active, valid, and unexpired
- */
 export function isAuthenticated(): boolean {
-  try {
-    const rawSession = localStorage.getItem(STORAGE_KEYS.SESSION);
-    if (!rawSession) return false;
-
-    const session = JSON.parse(rawSession);
-    if (!session || !session.token || !session.user || !session.user.isLoggedIn) {
-      return false;
-    }
-
-    // Check expiration
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      logoutUser();
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
+  return getCachedUser() !== null;
 }
 
-/**
- * Get current authenticated user details
- */
 export function getCurrentUser(): UserSession | null {
-  if (!isAuthenticated()) return null;
+  return getCachedUser();
+}
+
+export async function verifySession(): Promise<UserSession | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.LEGACY_USER) || localStorage.getItem(STORAGE_KEYS.SESSION);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed.user) return parsed.user;
-    if (parsed.isLoggedIn) return parsed;
-    return null;
+    const result = await authApi.me();
+    const userSession: UserSession = {
+      name: result.user.name,
+      email: result.user.email,
+      isLoggedIn: true,
+    };
+    setCachedUser(userSession);
+    return userSession;
   } catch {
+    setCachedUser(null);
     return null;
   }
 }
 
-/**
- * Route protection guard
- * Redirects to Sign In if the user is unauthenticated
- */
 export function protectRoute(
   onUnauthenticated?: (message: string) => void
 ): boolean {
@@ -330,6 +144,6 @@ export const authService = {
   logoutUser,
   isAuthenticated,
   getCurrentUser,
+  verifySession,
   protectRoute,
-  getRegisteredUsers
 };
