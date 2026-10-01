@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n frontend,backend -c blue,green \"npm run dev:client\" \"npm run dev:server\"",
-    "dev:client": "vite --port=3000 --host=0.0.0.0",
+    "dev": "vite --host=0.0.0.0",
+    "dev:client": "vite --host=0.0.0.0",
     "dev:server": "cd server && npm run dev",
     "build": "vite build",
     "preview": "vite preview",

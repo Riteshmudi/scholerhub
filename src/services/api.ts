@@ -14,6 +14,14 @@ export class ApiError extends Error {
   }
 }
 
+async function fetchOnce(path: string, options: RequestInit, headers: Record<string, string>): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -28,11 +36,12 @@ async function request<T>(
   }
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-    });
+    let response = await fetchOnce(path, options, headers);
+
+    if (response.status === 502) {
+      await new Promise((r) => setTimeout(r, 1500));
+      response = await fetchOnce(path, options, headers);
+    }
 
     const data = await response.json().catch(() => ({ error: 'Network error' }));
 
@@ -45,7 +54,7 @@ async function request<T>(
   } catch (err) {
     if (err instanceof ApiError) throw err;
     if (err instanceof TypeError) {
-      throw new ApiError('Cannot connect to the server. Is the backend running on port 4000?', 0);
+      throw new ApiError('Cannot connect to the server. Please wait a moment and try again.', 0);
     }
     throw err;
   }
