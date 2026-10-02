@@ -5,22 +5,22 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:./dev.db"
 }
 
 model User {
-  id           String          @id @default(uuid())
-  name         String
-  email        String          @unique
-  passwordHash String
-  createdAt    DateTime        @default(now())
-  sessions     Session[]
-  documents    Document[]
-  conversations Conversation[]
-  quizzes      Quiz[]
-  quizAttempts QuizAttempt[]
-  studyPlans   StudyPlan[]
-  notes        Note[]
+  id             String          @id @default(uuid())
+  name           String
+  email          String          @unique
+  passwordHash   String
+  createdAt      DateTime        @default(now())
+  sessions       Session[]
+  documents      Document[]
+  conversations  Conversation[]
+  quizzes        Quiz[]
+  quizAttempts   QuizAttempt[]
+  studyPlans     StudyPlan[]
+  notes          Note[]
   progressEvents ProgressEvent[]
 }
 
@@ -34,22 +34,22 @@ model Session {
 }
 
 model Document {
-  id              String           @id @default(uuid())
+  id              String          @id @default(uuid())
   userId          String
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   originalName    String
   mimeType        String
   size            Int
-  pageCount       Int              @default(0)
-  status          String           @default("processing")
+  pageCount       Int             @default(0)
+  status          String          @default("processing")
   extractedText   String?
   summary         String?
   detailedSummary String?
   keyTopics       String?
   errorMessage    String?
   chunks          DocumentChunk[]
-  createdAt       DateTime         @default(now())
+  createdAt       DateTime        @default(now())
 }
 
 model DocumentChunk {
@@ -72,37 +72,37 @@ model Conversation {
 }
 
 model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         String
-  text           String
+  id              String       @id @default(uuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          String
+  text            String
   citationDocName String?
-  citationPage   Int?
-  createdAt      DateTime     @default(now())
+  citationPage    Int?
+  createdAt       DateTime     @default(now())
 }
 
 model Quiz {
-  id         String        @id @default(uuid())
+  id         String         @id @default(uuid())
   userId     String
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   title      String
   topic      String?
   difficulty String?
   questions  QuizQuestion[]
   attempts   QuizAttempt[]
-  createdAt  DateTime      @default(now())
+  createdAt  DateTime       @default(now())
 }
 
 model QuizQuestion {
-  id           String   @id @default(uuid())
-  quizId       String
-  quiz         Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  question     String
-  options      String
+  id          String   @id @default(uuid())
+  quizId      String
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  question    String
+  options     String
   correctAnswer Int
-  explanation  String?
-  createdAt    DateTime @default(now())
+  explanation String?
+  createdAt   DateTime @default(now())
 }
 
 model QuizAttempt {
@@ -118,13 +118,13 @@ model QuizAttempt {
 }
 
 model StudyPlan {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   examDate  DateTime?
   planData  String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 }
 
 model Note {
